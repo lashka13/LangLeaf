@@ -1,0 +1,22 @@
+[project]
+name = "bazed-english"
+version = "0.1.0"
+description = "Bazed English is a telegram bot, that helps you to remember new English words."
+authors = [
+    {name = "Kamish"}
+]
+readme = "README.md"
+requires-python = "^3.9"
+dependencies = [
+    "python-telegram-bot (>=22.0,<23.0)",
+    "python-dotenv (>=1.1.0,<2.0.0)",
+    "aiogram (>=3.19.0,<4.0.0)",
+    "sqlalchemy (>=2.0.40,<3.0.0)",
+    "asyncpg (>=0.30.0,<0.31.0)",
+    "deep-translator (>=1.11.4,<2.0.0)"
+]
+
+
+[build-system]
+requires = ["poetry-core>=2.0.0,<3.0.0"]
+build-backend = "poetry.core.masonry.api"
