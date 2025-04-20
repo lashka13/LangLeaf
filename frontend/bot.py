@@ -10,7 +10,7 @@ import backend.cors as DB
 from aiogram.fsm.state import State, StatesGroup
 from random import choice
 import deep_translator as ts
-
+from .wordsapi import get_context
 from config import BOT_TOKEN
 
 # Инициализация бота
@@ -38,8 +38,7 @@ async def start(message: types.Message):
 async def learn_all(message: types.Message, state: FSMContext):
     words = await DB.get_all_words(message.from_user.id)
     if len(words) > 0:
-        words = mix_list(words)
-        print(words)
+        random.shuffle(words)
         swapped = False
         await state.set_state(LearnState.learn)
         await state.set_data(
@@ -50,7 +49,7 @@ async def learn_all(message: types.Message, state: FSMContext):
         text = get_learn_text(
             {"type": "all", "set": 0}, swapped, f_w, s_w, 1, len(words)
         )
-        markup = get_learn_markup(words[0][2], words[0][3])
+        markup = get_learn_markup(words[0][2], words[0][3], 0)
         await message.answer(text, parse_mode="HTML", reply_markup=markup.as_markup())
     else:
         await message.reply(LEARN_ERROR)
@@ -59,35 +58,36 @@ async def learn_all(message: types.Message, state: FSMContext):
 @dp.message(Command("menu"))
 async def menu(message: types.Message):
     options = await DB.get_menu(message.from_user.id)
-    if options:
-        words_count = await DB.get_words_count(message)
-        markup = get_menu_markup(options[0].swapped, options[0].current_set)
-        await message.answer_photo(
-            caption=get_menu_text(options, words_count),
-            photo=choice(TYLER),
-            reply_markup=markup.as_markup(),
-        )
-    else:
-        await message.reply(REGISTER_AT_FIRST)
+
+    words_count = await DB.get_words_count(message)
+    markup = get_menu_markup(options[0].swapped, options[0].current_set)
+    await message.answer_photo(
+        caption=get_menu_text(options, words_count),
+        photo=choice(TYLER),
+        reply_markup=markup.as_markup(),
+    )
 
 
+@dp.message(Command("learn"))
 @dp.message(Command("learn"))
 async def learn(message: types.Message, state: FSMContext):
     current_set, swapped, words = await DB.get_words_by_set(message)
     if len(words) > 0:
-        words = mix_list(words)
-        print("WORDS!!!", words)
+        random.shuffle(words)
+
         await state.set_state(LearnState.learn)
         await state.set_data(
             {"words": words, "i": 0, "swap": swapped, "current_set": current_set}
         )
         f_w = words[0][1] if swapped else words[0][0]
         s_w = words[0][0] if swapped else words[0][1]
-        print("LEARN END")
+
+        print("words", words)
         text = get_learn_text(
             {"type": "set", "set": current_set}, swapped, f_w, s_w, 1, len(words)
         )
-        markup = get_learn_markup(words[0][2], words[0][3])
+
+        markup = get_learn_markup(words[0][2], words[0][3], 0)
         await message.answer(text, parse_mode="HTML", reply_markup=markup.as_markup())
 
     else:
@@ -164,26 +164,26 @@ async def delete_all_words(message: types.Message):
     await message.reply(text=DELETE_TEXT, reply_markup=DELETE_MARKUP.as_markup())
 
 
-@dp.message(Command("export"))
-async def export_words(message: types.Message):
-    words = await DB.get_all_words(message.from_user.id)
-    text = ""
-    with open("db.txt", "w+") as file:
-        for word in words:
-            file.write(
-                str(word[0].id)
-                + "-----"
-                + str(word[0].user_id)
-                + "-----"
-                + word[0].word
-                + "-----"
-                + word[0].translated
-                + "-----"
-                + str(word[0].set)
-                + "-----"
-                + str(word[0].flag)
-                + "\n"
-            )
+# @dp.message(Command("export"))
+# async def export_words(message: types.Message):
+#     words = await DB.get_all_words(message.from_user.id)
+#     text = ""
+#     with open("db.txt", "w+") as file:
+#         for word in words:
+#             file.write(
+#                 str(word[0].id)
+#                 + "-----"
+#                 + str(word[0].user_id)
+#                 + "-----"
+#                 + word[0].word
+#                 + "-----"
+#                 + word[0].translated
+#                 + "-----"
+#                 + str(word[0].set)
+#                 + "-----"
+#                 + str(word[0].flag)
+#                 + "\n"
+#             )
 
 
 @dp.message()
@@ -205,10 +205,12 @@ async def word_handler(message: types.Message):
                     len_error = True
                     break
                 else:
-                    tr_word = ts.GoogleTranslator(
-                        source="en", target="ru"
-                    ).translate(phrase)
-                    await DB.write_new_word(message.from_user.id, phrase, tr_word, cur_set)
+                    tr_word = ts.GoogleTranslator(source="en", target="ru").translate(
+                        phrase
+                    )
+                    await DB.write_new_word(
+                        message.from_user.id, phrase, tr_word, cur_set
+                    )
             if len_error:
                 await message.reply(LEN_ERROR(phrase))
             else:
@@ -224,37 +226,52 @@ async def trash(message: types.Message):
     await message.reply(TRASH)
 
 
+async def get_text_by_state(state_data, index_add: int, context=False):
+    index = state_data["i"]
+    swapped = state_data["swap"]
+    words = state_data["words"]
+    current_set = state_data["current_set"]
+
+    f_w = words[index + index_add][1] if swapped else words[index + index_add][0]
+    s_w = words[index + index_add][0] if swapped else words[index + index_add][1]
+    if current_set == 0:
+        set_type = "all"
+    else:
+        set_type = "set"
+    text = get_learn_text(
+        {"type": set_type, "set": current_set},
+        swapped,
+        f_w,
+        s_w,
+        index + index_add + 1,
+        len(words),
+        context
+    )
+    return text
+
+
 async def send_word(
     callback: types.CallbackQuery, state: FSMContext, from_message=False
 ):
     data = await state.get_data()
     index = data["i"]
-    swapped = data["swap"]
     words = data["words"]
-    current_set = data["current_set"]
     try:
-        f_w = words[index + 1][1] if swapped else words[index + 1][0]
-        s_w = words[index + 1][0] if swapped else words[index + 1][1]
-        if current_set == 0:
-            set_type = "all"
-        else:
-            set_type = "set"
-        text = get_learn_text(
-            {"type": set_type, "set": current_set},
-            swapped,
-            f_w,
-            s_w,
-            index + 2,
-            len(words),
-        )
-        markup = get_learn_markup(words[index + 1][2], words[index + 1][3])
+
+        text = await get_text_by_state(data, 1)
+
+        markup = get_learn_markup(words[index + 1][2], words[index + 1][3], index + 1)
+        
         await state.update_data({"i": index + 1})
         if from_message:
             await callback.delete()
         else:
             await callback.message.delete()
         await bot.send_message(
-            callback.from_user.id, text=text, reply_markup=markup.as_markup(), parse_mode="HTML"
+            callback.from_user.id,
+            text=text,
+            reply_markup=markup.as_markup(),
+            parse_mode="HTML",
         )
     except IndexError:
         await state.clear()
@@ -278,6 +295,29 @@ async def delete_words_call(callback: types.CallbackQuery):
     await callback.message.reply(DELETE_SUCC)
 
 
+@dp.callback_query(
+    lambda callback: callback.data.startswith("get_context_"), LearnState.learn
+)
+async def get_context_by_word(callback: types.CallbackQuery, state: FSMContext):
+    word_id = int(callback.data.split("_")[2])
+    data = await state.get_data()
+    if data["words"][word_id][4] is None:
+        context = await get_context(data["words"][word_id][0])
+        await DB.add_definitions(data["words"][word_id][2], context)
+    else:
+        context = data["words"][word_id][4] 
+    message_text = await get_text_by_state(data, 0, context)
+    markup = get_learn_markup(data["words"][word_id][2], data["words"][word_id][3], word_id)
+
+    await bot.edit_message_text(
+        text=message_text,
+        chat_id=callback.from_user.id,
+        message_id=callback.message.message_id,
+        parse_mode="HTML",
+        reply_markup=markup.as_markup()
+    )
+
+
 @dp.callback_query(F.data == "swap", StateFilter(LearnState.learn))
 async def swap_learning(callback: types.CallbackQuery, state: FSMContext):
     current_swap = (await state.get_data())["swap"]
@@ -292,21 +332,24 @@ async def next_word(callback: types.CallbackQuery, state: FSMContext):
 
 
 @dp.callback_query(
-    lambda callback: callback.data.startswith("delete_choice_"), StateFilter(LearnState.learn)
+    lambda callback: callback.data.startswith("delete_choice_"),
+    StateFilter(LearnState.learn),
 )
 async def delete_choice(callback: types.CallbackQuery, state: FSMContext):
-    await bot.edit_message_text(
-        DELETE_WORD_TEXT, callback.from_user.id, callback.message.message_id
-    )
     word_id = int(callback.data.split("_")[2])
     markup = get_delete_word_markup(word_id)
-    await bot.edit_message_reply_markup(
-        callback.from_user.id, callback.message.message_id, reply_markup=markup.as_markup()
+    await bot.edit_message_text(
+        text=DELETE_WORD_TEXT,
+        chat_id=callback.from_user.id,
+        message_id=callback.message.message_id,
+        parse_mode="HTML",
+        reply_markup=markup.as_markup(),
     )
 
 
 @dp.callback_query(
-    lambda callback: callback.data.startswith("delete_word_"), StateFilter(LearnState.learn)
+    lambda callback: callback.data.startswith("delete_word_"),
+    StateFilter(LearnState.learn),
 )
 async def delete_word_callback(callback: types.CallbackQuery, state: FSMContext):
     await DB.delete_word(int(callback.data.split("_")[2]))
@@ -319,7 +362,9 @@ async def edit_translate(callback: types.CallbackQuery, state: FSMContext):
     data["edited_id"] = callback.message.message_id
     await state.set_state(LearnState.edit_translate)
     await state.set_data(data)
-    await callback.message.reply(EDIT_TRANSLATE_TEXT, reply_markup=EDIT_BUTTON.as_markup())
+    await callback.message.reply(
+        EDIT_TRANSLATE_TEXT, reply_markup=EDIT_BUTTON.as_markup()
+    )
 
 
 @dp.callback_query(F.data == "back_to_learn", StateFilter(LearnState.edit_translate))
@@ -332,17 +377,17 @@ async def back_to_learn(callback: types.CallbackQuery, state: FSMContext):
     await send_word(callback, state)
 
 
-@dp.callback_query(
-    lambda callback: callback.data.startswith("flag_"), LearnState.learn
-)
+@dp.callback_query(lambda callback: callback.data.startswith("flag_"), LearnState.learn)
 async def mark_words(callback: types.CallbackQuery, state: FSMContext):
     new_flag = await DB.mark_word(int(callback.data.split("_")[1]))
     data = await state.get_data()
     index = data["i"]
     words = data["words"]
-    markup = get_learn_markup(words[index][2], new_flag)
+    markup = get_learn_markup(words[index][2], new_flag, index)
     await bot.edit_message_reply_markup(
-        chat_id=callback.from_user.id, message_id=callback.message.message_id, reply_markup=markup.as_markup()
+        chat_id=callback.from_user.id,
+        message_id=callback.message.message_id,
+        reply_markup=markup.as_markup(),
     )
 
 
@@ -364,7 +409,9 @@ async def change_set(callback: types.CallbackQuery):
     sets = await DB.get_sets(callback.from_user.id)
     markup = get_sets_markup(sets)
     await callback.message.answer_photo(
-        caption=CHANGE_CURRENT_STATE, photo=choice(TYLER), reply_markup=markup.as_markup()
+        caption=CHANGE_CURRENT_STATE,
+        photo=choice(TYLER),
+        reply_markup=markup.as_markup(),
     )
 
 

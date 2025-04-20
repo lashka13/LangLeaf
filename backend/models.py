@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Boolean
+from sqlalchemy import Column, Integer, String, Boolean, ForeignKey
 from sqlalchemy.ext.declarative import declarative_base
 
 Base = declarative_base()
@@ -32,13 +32,15 @@ class Word(Base):
         user_id (int): ID of the user who owns this word
         word (str): The word itself
         translated (str): Translation of the word
+        definitions (str): Definitions of the word
         set (int): Set number this word belongs to
         flag (bool): Flag indicating if word is marked for special attention
     """
     __tablename__ = "words"
     id = Column(Integer(), nullable=False, primary_key=True, autoincrement=True)
-    user_id = Column(Integer())
+    user_id = Column(Integer(), ForeignKey("users.id"))
     word = Column(String())
     translated = Column(String())
+    definitions = Column(String(), nullable=True, default=None)
     set = Column(Integer())
     flag = Column(Boolean(), default=False)

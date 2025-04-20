@@ -123,7 +123,7 @@ async def get_words_by_set(message: types.Message) -> tuple:
         res = (await session.execute(query)).fetchone()
         set_id = res[0].current_set
         swapped = res[0].swapped
-        query = select(Word.word, Word.translated, Word.id, Word.flag).where(
+        query = select(Word.word, Word.translated, Word.id, Word.flag, Word.definitions).where(
             and_(Word.user_id == message.from_user.id, Word.set == set_id))
         return set_id, swapped, (await session.execute(query)).fetchall()
 
@@ -205,3 +205,13 @@ async def get_all_words(user_id: int) -> list:
     async with async_session_maker() as session:
         query = select(Word).where(Word.user_id == user_id)
         return (await session.execute(query)).fetchall()
+
+
+async def add_definitions(word_id: int, definitions: str) -> None:
+    """
+    Добавляем определения к слову
+    """
+    async with async_session_maker() as session:
+        stmt = update(Word).where(Word.id == word_id).values({'definitions': definitions})
+        await session.execute(stmt)
+        await session.commit()
