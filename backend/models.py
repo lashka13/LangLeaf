@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Boolean, ForeignKey
+from sqlalchemy import Column, Integer, String, Boolean, ForeignKey, BigInteger
 from sqlalchemy.ext.declarative import declarative_base
 
 Base = declarative_base()
@@ -16,7 +16,7 @@ class User(Base):
         current_set (int): Current word set number user is working with
     """
     __tablename__ = "users"
-    id = Column(Integer(), index=True, nullable=False, primary_key=True)
+    id = Column(BigInteger(), index=True, nullable=False, primary_key=True)
     username = Column(String(), default="")
     first_name = Column(String())
     last_name = Column(String(), default="")
@@ -38,7 +38,7 @@ class Word(Base):
     """
     __tablename__ = "words"
     id = Column(Integer(), nullable=False, primary_key=True, autoincrement=True)
-    user_id = Column(Integer(), ForeignKey("users.id"))
+    user_id = Column(BigInteger(), ForeignKey("users.id"))
     word = Column(String())
     translated = Column(String())
     definitions = Column(String(), nullable=True, default=None)
