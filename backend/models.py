@@ -44,3 +44,18 @@ class Word(Base):
     definitions = Column(String(), nullable=True, default=None)
     set = Column(Integer())
     flag = Column(Boolean(), default=False)
+    
+
+class Set(Base):
+    """Set model representing selected set
+    
+    Attributes:
+        user_id (int): ID of the user who owns this set
+        title (str): Title of the set
+        set_id (int): ID of the set
+    """
+    __tablename__ = "sets"
+    id = Column(Integer(), nullable=False, primary_key=True, autoincrement=True)
+    user_id = Column(BigInteger(), ForeignKey("users.id"))
+    title = Column(String())
+    set_id = Column(Integer())

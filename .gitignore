@@ -1,3 +1,6 @@
 .DS_Store
 .env
 poetry.lock
+alembic/versions/*
+*/__pycache__/
+__pycache__/

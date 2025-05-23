@@ -8,7 +8,7 @@ from .text import *  # Текст на разных языках
 from backend.database import init_db  # Функции бэкенда
 import backend.cors as DB
 from aiogram.fsm.state import State, StatesGroup
-from random import choice
+from random import choice, randint, shuffle
 import deep_translator as ts
 from .wordsapi import get_context
 from config import BOT_TOKEN
@@ -23,6 +23,10 @@ class LearnState(StatesGroup):
     edit_translate = State()
 
 
+class SetState(StatesGroup):
+    set_title = State()
+
+
 @dp.message(Command("start"))
 async def start(message: types.Message):
     await DB.create_user(
@@ -33,26 +37,6 @@ async def start(message: types.Message):
     )
     await message.reply(START, parse_mode="HTML")
 
-
-@dp.message(Command("learn_all"))
-async def learn_all(message: types.Message, state: FSMContext):
-    words = await DB.get_all_words(message.from_user.id)
-    if len(words) > 0:
-        random.shuffle(words)
-        swapped = False
-        await state.set_state(LearnState.learn)
-        await state.set_data(
-            {"words": words, "i": 0, "swap": swapped, "current_set": 0}
-        )
-        f_w = words[0][1] if swapped else words[0][0]
-        s_w = words[0][0] if swapped else words[0][1]
-        text = get_learn_text(
-            {"type": "all", "set": 0}, swapped, f_w, s_w, 1, len(words)
-        )
-        markup = get_learn_markup(words[0][2], words[0][3], 0)
-        await message.answer(text, parse_mode="HTML", reply_markup=markup.as_markup())
-    else:
-        await message.reply(LEARN_ERROR)
 
 
 @dp.message(Command("menu"))
@@ -69,11 +53,10 @@ async def menu(message: types.Message):
 
 
 @dp.message(Command("learn"))
-@dp.message(Command("learn"))
 async def learn(message: types.Message, state: FSMContext):
     current_set, swapped, words = await DB.get_words_by_set(message)
     if len(words) > 0:
-        random.shuffle(words)
+        shuffle(words)
 
         await state.set_state(LearnState.learn)
         await state.set_data(
@@ -164,27 +147,19 @@ async def delete_all_words(message: types.Message):
     await message.reply(text=DELETE_TEXT, reply_markup=DELETE_MARKUP.as_markup())
 
 
-# @dp.message(Command("export"))
-# async def export_words(message: types.Message):
-#     words = await DB.get_all_words(message.from_user.id)
-#     text = ""
-#     with open("db.txt", "w+") as file:
-#         for word in words:
-#             file.write(
-#                 str(word[0].id)
-#                 + "-----"
-#                 + str(word[0].user_id)
-#                 + "-----"
-#                 + word[0].word
-#                 + "-----"
-#                 + word[0].translated
-#                 + "-----"
-#                 + str(word[0].set)
-#                 + "-----"
-#                 + str(word[0].flag)
-#                 + "\n"
-#             )
-
+@dp.message(SetState.set_title)
+async def set_title(message: types.Message, state: FSMContext):
+    if len(message.text) <= 150:
+        res = await DB.add_new_set(message.from_user.id, message.text)
+        if res == 0:
+            await message.reply(SET_ADD)
+        elif res == 1:
+            await message.reply(SET_ERROR)
+        elif res == 2:
+            await message.reply(SET_2_ERROR)
+        await state.clear()
+    else:
+        await message.reply(SET_TITLE_ERROR)
 
 @dp.message()
 async def word_handler(message: types.Message):
@@ -193,26 +168,42 @@ async def word_handler(message: types.Message):
         cur_set = await DB.get_current_set(message)
         words_count = await DB.get_words_count(message, cur_set)
         cur_word_count = len([i for i in message.text.split("\n")])
-
+        error_phrase = ""
         if words_count + cur_word_count > WORDS_MAX:
             await message.reply(
                 MAX_WORDS_ERROR(words_count + cur_word_count - WORDS_MAX)
             )
         else:
             msg = await message.reply(WORD_WRITING)
+            
+            if (await DB.get_words_count(message)) == 0:
+                await DB.add_new_set(message.from_user.id, "Твой первый сэт!")
+            
             for phrase in message.text.split("\n"):
-                if len(phrase) > SYMB_MAX:
+                phrase_splitted = [i.strip() for i in phrase.split("-")]
+
+                if len(phrase_splitted[0]) > SYMB_MAX:
                     len_error = True
+                    error_phrase = phrase
                     break
-                else:
+
+                if len(phrase_splitted) > 1:
+                    if len(phrase_splitted[1]) > SYMB_MAX:
+                        len_error = True
+                        error_phrase = phrase
+                        break
+
+                if len(phrase_splitted) == 1:
                     tr_word = ts.GoogleTranslator(source="en", target="ru").translate(
-                        phrase
+                        phrase_splitted[0]
                     )
-                    await DB.write_new_word(
-                        message.from_user.id, phrase, tr_word, cur_set
-                    )
+                else:
+                    tr_word = phrase_splitted[1]
+                await DB.write_new_word(
+                    message.from_user.id, phrase_splitted[0], tr_word, cur_set
+                )
             if len_error:
-                await message.reply(LEN_ERROR(phrase))
+                await message.reply(LEN_ERROR(error_phrase))
             else:
                 await bot.delete_message(message.from_user.id, msg.message_id)
                 await message.reply(WORDS_INSERTED)
@@ -245,7 +236,7 @@ async def get_text_by_state(state_data, index_add: int, context=False):
         s_w,
         index + index_add + 1,
         len(words),
-        context
+        context,
     )
     return text
 
@@ -261,7 +252,7 @@ async def send_word(
         text = await get_text_by_state(data, 1)
 
         markup = get_learn_markup(words[index + 1][2], words[index + 1][3], index + 1)
-        
+
         await state.update_data({"i": index + 1})
         if from_message:
             await callback.delete()
@@ -305,16 +296,18 @@ async def get_context_by_word(callback: types.CallbackQuery, state: FSMContext):
         context = await get_context(data["words"][word_id][0])
         await DB.add_definitions(data["words"][word_id][2], context)
     else:
-        context = data["words"][word_id][4] 
+        context = data["words"][word_id][4]
     message_text = await get_text_by_state(data, 0, context)
-    markup = get_learn_markup(data["words"][word_id][2], data["words"][word_id][3], word_id)
+    markup = get_learn_markup(
+        data["words"][word_id][2], data["words"][word_id][3], word_id
+    )
 
     await bot.edit_message_text(
         text=message_text,
         chat_id=callback.from_user.id,
         message_id=callback.message.message_id,
         parse_mode="HTML",
-        reply_markup=markup.as_markup()
+        reply_markup=markup.as_markup(),
     )
 
 
@@ -416,18 +409,32 @@ async def change_set(callback: types.CallbackQuery):
 
 
 @dp.callback_query(F.data == "add_new_set")
-async def add_new_set(callback: types.CallbackQuery):
-    res = await DB.add_new_set(callback)
-    if res == 0:
-        await callback.message.reply(SET_ADD)
-    elif res == 1:
-        await callback.message.reply(SET_ERROR)
-    elif res == 2:
-        await callback.message.reply(SET_2_ERROR)
+async def add_new_set(callback: types.CallbackQuery, state: FSMContext):
+    await state.set_state(SetState.set_title)
+    await callback.message.reply(SET_TITLE_TEXT)
+
+
+async def background_on_start():
+
+    while True:
+        hour = randint(24, 30)
+        users = await DB.get_users()
+        for user in users:
+            try:
+                await bot.send_message(user[0].id, choice(NOTIFY_TEXT))
+                await asyncio.sleep(3)
+            except Exception:
+                continue
+        await asyncio.sleep(60 * 60 * hour)
+
+
+async def notification_cycle():
+    asyncio.create_task(background_on_start())
 
 
 async def main() -> None:
     await init_db()
+    dp.startup.register(notification_cycle)
     await dp.start_polling(bot)
 
 
